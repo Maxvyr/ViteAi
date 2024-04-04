@@ -9,7 +9,17 @@ form.addEventListener("submit", async (e) => {
   const formData = new FormData(form);
   const prompt = formData.get("prompt") as string;
 
-  const chatCompletion = await openai.chat.completions.create({
+  if (!prompt) {
+    alert("Veuillez entrer un prompt");
+    return;
+  }
+
+  if (import.meta.env.VITE_OPEN_AI_KEY.length === 0) {
+    alert("Veuillez renseigner la clé API OpenAI");
+    return;
+  }
+
+  const response = await openai.chat.completions.create({
     messages: [
       {
         role: "system",
@@ -21,16 +31,51 @@ form.addEventListener("submit", async (e) => {
       },
     ],
     model: "gpt-3.5-turbo",
+    stream: true, //for long running completions
   });
 
-  console.log(chatCompletion);
-  const code = chatCompletion.choices[0].message.content;
+  let code = "";
+  const onNewChunk = createTimedUpdateIframe();
+
+  for await (const message of response) {
+    //recording the token for the next message
+    // and adding the content to the code
+    const token = message.choices[0].delta.content;
+    //streaming stops when the model is done
+    // const isDone = message.choices[0].finish_reason === "stop";
+    code += token;
+    onNewChunk(code);
+    // console.log(code);
+  }
 
   if (!code) {
     alert("Erreur lors de la génération du code");
     return;
   }
+});
 
+const createTimedUpdateIframe = () => {
+  let date = new Date();
+  let timeOut: any = null;
+
+  return (code: string) => {
+    //only call updaetIframe if the last action was more than 1 second ago
+    if (new Date().getTime() - date.getTime() < 1000) {
+      updateIframe(code);
+      return;
+    }
+
+    if (timeOut) {
+      clearTimeout(timeOut);
+    }
+
+    timeOut = setTimeout(() => {
+      updateIframe(code);
+    }, 1000);
+  };
+};
+
+const updateIframe = (code: string) => {
   iframe.srcdoc = `
     <!DOCTYPE html>
     <html lang="fr">
@@ -43,4 +88,4 @@ form.addEventListener("submit", async (e) => {
         ${code}
       </body>
   `;
-});
+};
